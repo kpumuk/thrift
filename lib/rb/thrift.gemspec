@@ -40,4 +40,8 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'rspec',              '~> 3.7'
   s.add_development_dependency 'srv',                '~> 1.0'
   s.add_development_dependency 'thin',               '~> 1.7'
+
+  # Only required for tests with Rack 2.x on Ruby 4.0+
+  s.add_development_dependency 'cgi'
+  s.add_development_dependency 'ostruct'
 end
