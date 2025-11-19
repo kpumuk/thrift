@@ -29,7 +29,7 @@ Gem::Specification.new do |s|
   s.require_paths = %w[lib ext]
 
   s.add_dependency 'logger'
-  
+
   s.add_development_dependency 'bundler',            '~> 2.2.34'
   s.add_development_dependency 'pry',                '~> 0.11.3'
   s.add_development_dependency 'pry-byebug',         '~> 3.6'
