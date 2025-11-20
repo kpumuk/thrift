@@ -17,24 +17,29 @@
 # under the License.
 #
 
-stubs: $(THRIFT) ../ThriftTest.thrift ../SmallTest.thrift
-	$(THRIFT) --gen rb ../ThriftTest.thrift
-	$(THRIFT) --gen rb ../SmallTest.thrift
-	$(THRIFT) --gen rb ../Recursive.thrift
+require 'thrift/protocol/base_protocol'
 
-precross: stubs
+module Thrift
+  module UUID
+    UUID_REGEX = /\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/.freeze
 
-check: stubs
-if HAVE_BUNDLER
-	$(BUNDLER) install
-	$(BUNDLER) exec $(RUBY) -I. test_suite.rb
-endif
+    def self.validate_uuid!(uuid)
+      unless uuid.is_a?(String)
+        raise ProtocolException.new(ProtocolException::INVALID_DATA, 'UUID must be a string')
+      end
 
-clean-local:
-	$(RM) -r gen-rb/
+      unless uuid =~ UUID_REGEX
+        raise ProtocolException.new(ProtocolException::INVALID_DATA, 'Invalid UUID format')
+      end
+    end
 
-distdir:
-	$(MAKE) $(AM_MAKEFLAGS) distdir-am
+    def self.uuid_bytes(uuid)
+      [uuid.delete('-')].pack('H*')
+    end
 
-dist-hook:
-	$(RM) -r $(distdir)/gen-rb/
+    def self.uuid_from_bytes(bytes)
+      hex = bytes.unpack('H*').first
+      "#{hex[0, 8]}-#{hex[8, 4]}-#{hex[12, 4]}-#{hex[16, 4]}-#{hex[20, 12]}"
+    end
+  end
+end
