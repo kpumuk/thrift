@@ -249,28 +249,50 @@ shared_examples_for 'a binary protocol' do
   it "should error gracefully when trying to write a nil string" do
     expect { @prot.write_string(nil) }.to raise_error
   end
-  
+
+  it "should write a uuid" do
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    @prot.write_uuid(uuid)
+    a = @trans.read(@trans.available)
+    expect(a.bytesize).to eq(16)
+    # UUID should be written as 16 bytes (LSB then MSB)
+    expect(a.unpack('H*').first).to eq("a71644665544000055" + "0e8400e29b41d4")
+  end
+
+  it "should read a uuid" do
+    # Write 16 bytes representing UUID "550e8400-e29b-41d4-a716-446655440000"
+    # LSB (8 bytes): a716-446655440000
+    # MSB (8 bytes): 550e8400-e29b-41d4
+    @trans.write(["a716446655440000550e8400e29b41d4"].pack('H*'))
+    uuid = @prot.read_uuid
+    expect(uuid).to eq("550e8400-e29b-41d4-a716-446655440000")
+  end
+
+  it "should error gracefully when trying to write an invalid uuid" do
+    expect { @prot.write_uuid("invalid") }.to raise_error(Thrift::ProtocolException)
+  end
+
   it "should write the message header without version when writes are not strict" do
     @prot = protocol_class.new(@trans, true, false) # no strict write
     @prot.write_message_begin('testMessage', Thrift::MessageTypes::CALL, 17)
     expect(@trans.read(@trans.available)).to eq("\000\000\000\vtestMessage\001\000\000\000\021")
   end
-    
+
   it "should write the message header with a version when writes are strict" do
     @prot = protocol_class.new(@trans) # strict write
     @prot.write_message_begin('testMessage', Thrift::MessageTypes::CALL, 17)
     expect(@trans.read(@trans.available)).to eq("\200\001\000\001\000\000\000\vtestMessage\000\000\000\021")
   end
-  
+
   # message footer is a noop
-  
+
   it "should read a field header" do
     @trans.write([Thrift::Types::STRING, 3].pack("cn"))
     expect(@prot.read_field_begin).to eq([nil, Thrift::Types::STRING, 3])
   end
-  
+
   # field footer is a noop
-  
+
   it "should read a stop field" do
     @trans.write([Thrift::Types::STOP].pack("c"));
     expect(@prot.read_field_begin).to eq([nil, Thrift::Types::STOP, 0])

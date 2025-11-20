@@ -45,7 +45,8 @@ module Thrift
       SET            = 0x0A
       MAP            = 0x0B
       STRUCT         = 0x0C
-      
+      UUID           = 0x0D
+
       def self.is_bool_type?(b)
         (b & 0x0f) == BOOLEAN_TRUE || (b & 0x0f) == BOOLEAN_FALSE
       end
@@ -63,7 +64,8 @@ module Thrift
         LIST          => Types::LIST,
         SET           => Types::SET,
         MAP           => Types::MAP,
-        STRUCT        => Types::STRUCT
+        STRUCT        => Types::STRUCT,
+        UUID          => Types::UUID
       }
 
       TTYPE_TO_COMPACT = {
@@ -78,7 +80,8 @@ module Thrift
         Types::LIST           => LIST,
         Types::SET            => SET,
         Types::MAP            => MAP,
-        Types::STRUCT         => STRUCT
+        Types::STRUCT         => STRUCT,
+        Types::UUID           => UUID
       }
       
       def self.get_ttype(compact_type)
@@ -220,6 +223,15 @@ module Thrift
       @trans.write(buf)
     end
 
+    def write_uuid(uuid)
+      bytes = [uuid.gsub('-', '')].pack('H*')
+      raise ProtocolException.new(ProtocolException::INVALID_DATA, 'Invalid UUID length') if bytes.bytesize != 16
+
+      # Write LSB first (bytes 8-15 of UUID), then MSB (bytes 0-7 of UUID)
+      @trans.write(bytes[8, 8])
+      @trans.write(bytes[0, 8])
+    end
+
     def read_message_begin
       protocol_id = read_byte()
       if protocol_id != PROTOCOL_ID
@@ -345,17 +357,30 @@ module Thrift
       size = read_varint32()
       trans.read_all(size)
     end
-    
+
+    def read_uuid
+      # Read 16 bytes: LSB (8 bytes) then MSB (8 bytes)
+      lsb = trans.read_all(8)
+      msb = trans.read_all(8)
+
+      # Reconstruct UUID in proper order (MSB first, then LSB)
+      bytes = msb + lsb
+
+      # Convert to hex string and format as UUID
+      hex = bytes.unpack('H*').first
+      "#{hex[0, 8]}-#{hex[8, 4]}-#{hex[12, 4]}-#{hex[16, 4]}-#{hex[20, 12]}"
+    end
+
     def to_s
       "compact(#{super.to_s})"
     end
 
     private
-    
-    # 
-    # Abstract method for writing the start of lists and sets. List and sets on 
+
+    #
+    # Abstract method for writing the start of lists and sets. List and sets on
     # the wire differ only by the type indicator.
-    # 
+    #
     def write_collection_begin(elem_type, size)
       if size <= 14
         write_byte(size << 4 | CompactTypes.get_compact_type(elem_type))

@@ -116,6 +116,18 @@ module Thrift
       trans.write(buf)
     end
 
+    def write_uuid(uuid)
+      # Remove hyphens and convert to byte array
+      # UUID format: "550e8400-e29b-41d4-a716-446655440000"
+      # Java writes LSB (bytes 0-7) then MSB (bytes 8-15)
+      bytes = [uuid.gsub('-', '')].pack('H*')
+      raise ProtocolException.new(ProtocolException::INVALID_DATA, 'Invalid UUID length') if bytes.bytesize != 16
+
+      # Java writes LSB first (bytes 8-15 of UUID), then MSB (bytes 0-7 of UUID)
+      trans.write(bytes[8, 8])
+      trans.write(bytes[0, 8])
+    end
+
     def read_message_begin
       version = read_i32
       if version < 0
@@ -226,7 +238,20 @@ module Thrift
       size = read_i32
       trans.read_all(size)
     end
-    
+
+    def read_uuid
+      # Read 16 bytes: LSB (8 bytes) then MSB (8 bytes)
+      lsb = trans.read_all(8)
+      msb = trans.read_all(8)
+
+      # Reconstruct UUID in proper order (MSB first, then LSB)
+      bytes = msb + lsb
+
+      # Convert to hex string and format as UUID
+      hex = bytes.unpack('H*').first
+      "#{hex[0, 8]}-#{hex[8, 4]}-#{hex[12, 4]}-#{hex[16, 4]}-#{hex[20, 12]}"
+    end
+
     def to_s
       "binary(#{super.to_s})"
     end

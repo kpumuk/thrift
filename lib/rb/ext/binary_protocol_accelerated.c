@@ -228,6 +228,46 @@ VALUE rb_thrift_binary_proto_write_binary(VALUE self, VALUE buf) {
   return Qnil;
 }
 
+VALUE rb_thrift_binary_proto_write_uuid(VALUE self, VALUE uuid) {
+  CHECK_NIL(uuid);
+  
+  if (TYPE(uuid) != T_STRING) {
+    rb_raise(rb_eStandardError, "UUID must be a string");
+  }
+  
+  VALUE trans = GET_TRANSPORT(self);
+  char bytes[16];
+  const char* str = RSTRING_PTR(uuid);
+  long len = RSTRING_LEN(uuid);
+  
+  // Parse UUID string (format: "550e8400-e29b-41d4-a716-446655440000")
+  // Expected length: 36 characters (32 hex + 4 hyphens)
+  if (len != 36 || str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-') {
+    VALUE exception_class = rb_const_get(thrift_module, rb_intern("ProtocolException"));
+    VALUE invalid_data = rb_const_get(exception_class, rb_intern("INVALID_DATA"));
+    VALUE args[2];
+    args[0] = invalid_data;
+    args[1] = rb_str_new2("Invalid UUID format");
+    rb_exc_raise(rb_class_new_instance(2, args, exception_class));
+  }
+  
+  // Parse hex string to bytes, skipping hyphens
+  int byte_idx = 0;
+  for (int i = 0; i < len && byte_idx < 16; i++) {
+    if (str[i] == '-') continue;
+    
+    char hex[3] = {str[i], str[i+1], 0};
+    bytes[byte_idx++] = (char)strtol(hex, NULL, 16);
+    i++; // skip next char since we processed two
+  }
+  
+  // Write LSB first (bytes 8-15), then MSB (bytes 0-7)
+  WRITE(trans, &bytes[8], 8);
+  WRITE(trans, &bytes[0], 8);
+  
+  return Qnil;
+}
+
 //---------------------------------------
 // interface reading methods
 //---------------------------------------
@@ -400,6 +440,27 @@ VALUE rb_thrift_binary_proto_read_binary(VALUE self) {
   return READ(self, size);
 }
 
+VALUE rb_thrift_binary_proto_read_uuid(VALUE self) {
+  // Read 16 bytes: LSB (8 bytes) then MSB (8 bytes)
+  VALUE lsb = READ(self, 8);
+  VALUE msb = READ(self, 8);
+  
+  unsigned char* lsb_bytes = (unsigned char*)RSTRING_PTR(lsb);
+  unsigned char* msb_bytes = (unsigned char*)RSTRING_PTR(msb);
+  
+  // Format as UUID string: "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+  // MSB first (bytes 0-7), then LSB (bytes 8-15)
+  char uuid_str[37];
+  snprintf(uuid_str, sizeof(uuid_str),
+           "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+           msb_bytes[0], msb_bytes[1], msb_bytes[2], msb_bytes[3],
+           msb_bytes[4], msb_bytes[5], msb_bytes[6], msb_bytes[7],
+           lsb_bytes[0], lsb_bytes[1], lsb_bytes[2], lsb_bytes[3],
+           lsb_bytes[4], lsb_bytes[5], lsb_bytes[6], lsb_bytes[7]);
+  
+  return rb_str_new2(uuid_str);
+}
+
 void Init_binary_protocol_accelerated() {
   VALUE thrift_binary_protocol_class = rb_const_get(thrift_module, rb_intern("BinaryProtocol"));
 
@@ -425,6 +486,7 @@ void Init_binary_protocol_accelerated() {
   rb_define_method(bpa_class, "write_double",        rb_thrift_binary_proto_write_double, 1);
   rb_define_method(bpa_class, "write_string",        rb_thrift_binary_proto_write_string, 1);
   rb_define_method(bpa_class, "write_binary",        rb_thrift_binary_proto_write_binary, 1);
+  rb_define_method(bpa_class, "write_uuid",          rb_thrift_binary_proto_write_uuid, 1);
   // unused methods
   rb_define_method(bpa_class, "write_message_end", rb_thrift_binary_proto_write_message_end, 0);
   rb_define_method(bpa_class, "write_struct_begin", rb_thrift_binary_proto_write_struct_begin, 1);
@@ -447,6 +509,7 @@ void Init_binary_protocol_accelerated() {
   rb_define_method(bpa_class, "read_double",         rb_thrift_binary_proto_read_double, 0);
   rb_define_method(bpa_class, "read_string",         rb_thrift_binary_proto_read_string, 0);
   rb_define_method(bpa_class, "read_binary",         rb_thrift_binary_proto_read_binary, 0);
+  rb_define_method(bpa_class, "read_uuid",           rb_thrift_binary_proto_read_uuid, 0);
   // unused methods
   rb_define_method(bpa_class, "read_message_end", rb_thrift_binary_proto_read_message_end, 0);
   rb_define_method(bpa_class, "read_struct_begin", rb_thrift_binary_proto_read_struct_begin, 0);
