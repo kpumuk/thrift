@@ -1,0 +1,15 @@
+version: 2
+mergeable:
+  - when: pull_request.*
+    name: Add 'ruby' label to PR if changeset includes changes to the lib/rb or test/rb directories
+    validate:
+      - do: changeset
+        or:
+          - must_include:
+              regex: 'lib/rb/.*'
+          - must_include:
+              regex: 'test/rb/.*'
+    pass:
+      - do: labels
+        labels: ['ruby']
+        mode: 'add'
