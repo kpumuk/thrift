@@ -36,9 +36,9 @@ clean-local:
 check-local: all
 	$(BUNDLER) install
 	$(BUNDLER) exec rake
-	$(RUBY) test/TestBinaryProtocol.rb
-	$(RUBY) test/TestCompactProtocol.rb
-	$(RUBY) test/TestJsonProtocol.rb
+	$(BUNDLER) exec ruby test/TestBinaryProtocol.rb
+	$(BUNDLER) exec ruby test/TestCompactProtocol.rb
+	$(BUNDLER) exec ruby test/TestJsonProtocol.rb
 
 endif
 
