@@ -83,11 +83,14 @@ public:
 
     require_rubygems_ = false;
     namespaced_ = false;
+    zeitwerk_ = false;
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("rubygems") == 0) {
         require_rubygems_ = true;
       } else if( iter->first.compare("namespaced") == 0) {
         namespaced_ = true;
+      } else if( iter->first.compare("zeitwerk") == 0) {
+        zeitwerk_ = true;
       } else {
         throw "unknown option ruby:" + iter->first;
       }
