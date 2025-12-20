@@ -98,6 +98,13 @@ task :benchmark do
   ruby 'benchmark/benchmark.rb'
 end
 
+begin
+  require "rubocop/rake_task"
+  RuboCop::RakeTask.new
+rescue LoadError
+  task(:rubocop) { abort "Install the rubocop gem to run a static analysis" }
+end
+
 desc 'Builds the thrift gem'
 task :gem => [:spec, :build_ext] do
   unless sh 'gem', 'build', 'thrift.gemspec'
