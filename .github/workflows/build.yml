@@ -699,17 +699,17 @@ jobs:
       - name: Run make check for test/rb
         run: make -C test/rb check
 
-      # Run rubocop from the root of the monorepo to make GitHub formatter to output
-      # correct file paths, so that GitHub renders annotations correctly.
       - name: Run Rubocop for lib/rb
         if: ${{ ! matrix.skip-rubocop }}
+        working-directory: lib/rb
         run: |
-          BUNDLE_GEMFILE=lib/rb/Gemfile bundle exec rubocop lib/rb --config lib/rb/.rubocop.yml --format progress --format github
+          bundle exec rubocop --format progress --format github
 
       - name: Run Rubocop for test/rb
         if: ${{ ! matrix.skip-rubocop }}
+        working-directory: test/rb
         run: |
-          BUNDLE_GEMFILE=test/rb/Gemfile bundle exec rubocop test/rb --config test/rb/.rubocop.yml --format progress --format github
+          bundle exec rubocop --format progress --format github
 
   cross-test:
     needs:
