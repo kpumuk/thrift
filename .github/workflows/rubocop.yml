@@ -1,0 +1,42 @@
+name: "Rubocop"
+
+on:
+  push:
+    branches: ["*"]
+    paths:
+      - lib/rb/**
+      - test/rb/**
+  pull_request:
+    branches: ["*"]
+    paths:
+      - lib/rb/**
+      - test/rb/**
+
+permissions:
+  contents: read
+
+jobs:
+  rubocop:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Lowest supported Ruby version
+        ruby-version: ["2.7"]
+        directory: ["lib/rb", "test/rb"]
+    name: "rubocop ${{ matrix.directory }} (${{ matrix.ruby-version }})"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+          working-directory: ${{ matrix.directory }}
+
+      - name: Run Rubocop
+        if: ${{ ! matrix.skip-rubocop }}
+        working-directory: ${{ matrix.directory }}
+        run: |
+          bundle exec rubocop --format progress --format github
