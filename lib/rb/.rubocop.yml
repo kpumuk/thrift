@@ -2,3 +2,6 @@ AllCops:
   DisabledByDefault: true
   SuggestExtensions: false
   TargetRubyVersion: 2.7
+
+Layout/IndentationConsistency:
+  Enabled: true

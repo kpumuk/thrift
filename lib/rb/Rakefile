@@ -80,7 +80,7 @@ task :build_ext => :'gen-rb' do
       end
       unless sh "make"
         $stderr.puts "make failed"
-        break
+          break
       end
     end
 end
