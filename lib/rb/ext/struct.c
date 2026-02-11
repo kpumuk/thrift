@@ -467,7 +467,7 @@ static VALUE read_anything(VALUE protocol, int ttype, VALUE field_info) {
   } else if (ttype == TTYPE_UUID) {
     result = default_read_uuid(protocol);
   } else if (ttype == TTYPE_STRUCT) {
-    VALUE klass = rb_hash_aref(field_info, class_sym);
+    VALUE klass = rb_funcall(thrift_module, field_class_id, 1, field_info);
     result = rb_class_new_instance(0, NULL, klass);
 
     if (rb_obj_is_kind_of(result, thrift_union_class)) {

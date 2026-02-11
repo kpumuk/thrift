@@ -80,6 +80,7 @@ extern ID read_into_buffer_method_id;
 extern ID force_binary_encoding_id;
 extern ID convert_to_utf8_byte_buffer_id;
 extern ID convert_to_string_id;
+extern ID field_class_id;
 
 extern ID fields_const_id;
 extern ID transport_ivar_id;
@@ -91,7 +92,6 @@ extern VALUE name_sym;
 extern VALUE key_sym;
 extern VALUE value_sym;
 extern VALUE element_sym;
-extern VALUE class_sym;
 extern VALUE binary_sym;
 
 extern VALUE rb_cSet;

@@ -95,6 +95,7 @@ ID read_into_buffer_method_id;
 ID force_binary_encoding_id;
 ID convert_to_utf8_byte_buffer_id;
 ID convert_to_string_id;
+ID field_class_id;
 
 // constant ids
 ID fields_const_id;
@@ -108,7 +109,6 @@ VALUE name_sym;
 VALUE key_sym;
 VALUE value_sym;
 VALUE element_sym;
-VALUE class_sym;
 VALUE binary_sym;
 VALUE protocol_exception_class;
 
@@ -202,6 +202,7 @@ RUBY_FUNC_EXPORTED void Init_thrift_native(void) {
   force_binary_encoding_id = rb_intern("force_binary_encoding");
   convert_to_utf8_byte_buffer_id = rb_intern("convert_to_utf8_byte_buffer");
   convert_to_string_id = rb_intern("convert_to_string");
+  field_class_id = rb_intern("field_class");
 
   // constant ids
   fields_const_id = rb_intern("FIELDS");
@@ -215,7 +216,6 @@ RUBY_FUNC_EXPORTED void Init_thrift_native(void) {
   key_sym = ID2SYM(rb_intern("key"));
   value_sym = ID2SYM(rb_intern("value"));
   element_sym = ID2SYM(rb_intern("element"));
-  class_sym = ID2SYM(rb_intern("class"));
   binary_sym = ID2SYM(rb_intern("binary"));
 
   // protocol errors
@@ -232,7 +232,6 @@ RUBY_FUNC_EXPORTED void Init_thrift_native(void) {
   rb_global_variable(&key_sym);
   rb_global_variable(&value_sym);
   rb_global_variable(&element_sym);
-  rb_global_variable(&class_sym);
   rb_global_variable(&binary_sym);
 
   Init_struct();

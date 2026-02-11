@@ -38,6 +38,7 @@ Gem::Specification.new do |s|
   s.add_development_dependency 'rspec',              '~> 3.7'
   s.add_development_dependency 'srv',                '~> 1.0'
   s.add_development_dependency 'thin',               '~> 1.7'
+  s.add_development_dependency 'zeitwerk',           '~> 2.6'
 
   s.metadata = {
     'bug_tracker_uri' => 'https://issues.apache.org/jira/browse/THRIFT',

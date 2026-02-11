@@ -51,7 +51,7 @@ module Thrift
     def read_field(iprot, field = {})
       case field[:type]
       when Types::STRUCT
-        value = field[:class].new
+        value = Thrift.field_class(field).new
         value.read(iprot)
       when Types::MAP
         key_type, val_type, size = iprot.read_map_begin
@@ -151,13 +151,16 @@ module Thrift
     def field_info(field)
       { :type => field[:type],
         :class => field[:class],
+        :class_name => field[:class_name],
         :key => field[:key],
         :value => field[:value],
-        :element => field[:element] }
+        :element => field[:element],
+        :enum_class => field[:enum_class],
+        :enum_name => field[:enum_name] }
     end
 
     def inspect_field(value, field_info)
-      if enum_class = field_info[:enum_class]
+      if enum_class = Thrift.field_enum(field_info)
         "#{enum_class.const_get(:VALUE_MAP)[value]} (#{value})"
       elsif value.is_a? Hash 
         if field_info[:type] == Types::MAP

@@ -18,6 +18,7 @@
 # 
 
 require 'set'
+require 'thrift/constant_resolver'
 
 module Thrift
   module Types
@@ -82,7 +83,8 @@ module Thrift
         check_type(el, field[:element], "#{name}.element", false)
       end
     when Types::STRUCT
-      raise TypeError, "Expected #{field[:class]}, received #{value.class} for field #{name}" unless field[:class] == value.class
+      expected_class = Thrift.field_class(field)
+      raise TypeError, "Expected #{expected_class}, received #{value.class} for field #{name}" unless expected_class == value.class
     end
   end
 

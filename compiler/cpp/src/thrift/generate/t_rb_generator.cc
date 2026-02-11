@@ -37,10 +37,7 @@
 #include "thrift/generate/t_oop_generator.h"
 
 using std::map;
-using std::ofstream;
-using std::ostringstream;
 using std::string;
-using std::stringstream;
 using std::vector;
 
 /**
@@ -76,21 +73,28 @@ class t_rb_generator : public t_oop_generator {
 public:
   t_rb_generator(t_program* program,
                  const std::map<std::string, std::string>& parsed_options,
-                 const std::string& option_string)
+                 const std::string& /* option_string */)
     : t_oop_generator(program) {
-    (void)option_string;
     std::map<std::string, std::string>::const_iterator iter;
 
     require_rubygems_ = false;
     namespaced_ = false;
+    zeitwerk_ = false;
+
     for( iter = parsed_options.begin(); iter != parsed_options.end(); ++iter) {
       if( iter->first.compare("rubygems") == 0) {
         require_rubygems_ = true;
       } else if( iter->first.compare("namespaced") == 0) {
         namespaced_ = true;
+      } else if (iter->first.compare("zeitwerk") == 0) {
+        zeitwerk_ = true;
       } else {
         throw "unknown option ruby:" + iter->first;
       }
+    }
+
+    if (zeitwerk_ && namespaced_) {
+      throw "ruby options zeitwerk and namespaced are mutually exclusive";
     }
 
     out_dir_base_ = "gen-rb";
@@ -128,12 +132,13 @@ public:
   void generate_rb_struct_required_validator(t_rb_ofstream& out, t_struct* tstruct);
   void generate_rb_union(t_rb_ofstream& out, t_struct* tstruct, bool is_exception);
   void generate_rb_union_validator(t_rb_ofstream& out, t_struct* tstruct);
-  void generate_rb_function_helpers(t_function* tfunction);
+  void generate_rb_function_helpers(t_rb_ofstream& out, t_function* tfunction);
   void generate_rb_simple_constructor(t_rb_ofstream& out, t_struct* tstruct);
   void generate_rb_simple_exception_constructor(t_rb_ofstream& out, t_struct* tstruct);
   void generate_field_constants(t_rb_ofstream& out, t_struct* tstruct);
   void generate_field_constructors(t_rb_ofstream& out, t_struct* tstruct);
   void generate_field_defns(t_rb_ofstream& out, t_struct* tstruct);
+  void generate_rb_enum_values(t_rb_ofstream& out, t_enum* tenum);
   void generate_field_data(t_rb_ofstream& out,
                            t_type* field_type,
                            const std::string& field_name,
@@ -144,11 +149,11 @@ public:
    * Service-level generation functions
    */
 
-  void generate_service_helpers(t_service* tservice);
+  void generate_service_helpers(t_rb_ofstream& out, t_service* tservice);
   void generate_service_interface(t_service* tservice);
-  void generate_service_client(t_service* tservice);
-  void generate_service_server(t_service* tservice);
-  void generate_process_function(t_service* tservice, t_function* tfunction);
+  void generate_service_client(t_rb_ofstream& out, t_service* tservice);
+  void generate_service_server(t_rb_ofstream& out, t_service* tservice);
+  void generate_process_function(t_rb_ofstream& out, t_function* tfunction);
 
   /**
    * Serialization constructs
@@ -201,31 +206,28 @@ public:
   std::string function_signature(t_function* tfunction, std::string prefix = "");
   std::string argument_list(t_struct* tstruct);
   std::string type_to_enum(t_type* ttype);
-  std::string rb_namespace_to_path_prefix(std::string rb_namespace);
+  const std::string& rb_namespace_constant_prefix(const t_program* p);
+  std::string rb_constant_name(const std::string& name);
+  std::string rb_file_name(const std::string& name);
+  const std::string& rb_namespace_path(const t_program* p);
+  std::string rb_symbol_path(const t_program* p, const std::string& constant_name);
+  std::string normalize_zeitwerk_name(const std::string& in);
+  void open_zeitwerk_service_unit(const t_service* service,
+                                  const std::string& idl_name,
+                                  const std::string& ruby_name,
+                                  const std::string& relative_path,
+                                  t_rb_ofstream& out);
+  void close_zeitwerk_service_unit(const t_service* service, t_rb_ofstream& out);
+  void open_zeitwerk_unit(const t_program* program,
+                          const std::string& idl_name,
+                          const std::string& ruby_name,
+                          const std::string& relative_path,
+                          t_rb_ofstream& out);
+  void close_zeitwerk_unit(const t_program* program, t_rb_ofstream& out);
 
-  std::vector<std::string> ruby_modules(const t_program* p) {
-    std::string ns = p->get_namespace("rb");
-    std::vector<std::string> modules;
-    if (ns.empty()) {
-      return modules;
-    }
-
-    std::string::iterator pos = ns.begin();
-    while (true) {
-      std::string::iterator delim = std::find(pos, ns.end(), '.');
-      modules.push_back(capitalize(std::string(pos, delim)));
-      pos = delim;
-      if (pos == ns.end()) {
-        break;
-      }
-      ++pos;
-    }
-
-    return modules;
-  }
-
-  void begin_namespace(t_rb_ofstream&, std::vector<std::string>);
-  void end_namespace(t_rb_ofstream&, std::vector<std::string>);
+  const std::vector<std::string>& ruby_modules(const t_program* p);
+  void begin_namespace(t_rb_ofstream&, const std::vector<std::string>&);
+  void end_namespace(t_rb_ofstream&, const std::vector<std::string>&);
 
 private:
   /**
@@ -234,7 +236,6 @@ private:
 
   t_rb_ofstream f_types_;
   t_rb_ofstream f_consts_;
-  t_rb_ofstream f_service_;
 
   std::string namespace_dir_;
   std::string require_prefix_;
@@ -244,6 +245,21 @@ private:
 
   /** If true, generate files in idiomatic namespaced directories. */
   bool namespaced_;
+
+  /** If true, generate strict Zeitwerk-compatible files. */
+  bool zeitwerk_;
+
+  struct rb_namespace_cache {
+    std::vector<std::string> modules;
+    std::string path_prefix;
+    std::string constant_prefix;
+  };
+
+  const rb_namespace_cache& get_rb_namespace_cache(const t_program* p);
+  std::map<const t_program*, rb_namespace_cache> rb_namespace_cache_;
+
+  std::map<std::string, std::string> zeitwerk_symbols_;
+  std::map<std::string, std::string> zeitwerk_paths_;
 };
 
 /**
@@ -258,8 +274,14 @@ void t_rb_generator::init_generator() {
   // Make output directory
   MKDIR(subdir.c_str());
 
+  if (zeitwerk_) {
+    namespace_dir_ = subdir;
+    require_prefix_.clear();
+    return;
+  }
+
   if (namespaced_) {
-    require_prefix_ = rb_namespace_to_path_prefix(program_->get_namespace("rb"));
+    require_prefix_ = rb_namespace_path(program_);
 
     string dir = require_prefix_;
     string::size_type loc;
@@ -282,11 +304,12 @@ void t_rb_generator::init_generator() {
 
   // Print header
   f_types_ << rb_autogen_comment() << '\n' << render_require_thrift() << render_includes() << '\n';
-  begin_namespace(f_types_, ruby_modules(program_));
+  const auto& program_modules = ruby_modules(program_);
+  begin_namespace(f_types_, program_modules);
 
   f_consts_ << rb_autogen_comment() << '\n' << render_require_thrift() << "require '"
             << require_prefix_ << underscore(program_name_) << "_types'" << '\n' << '\n';
-  begin_namespace(f_consts_, ruby_modules(program_));
+  begin_namespace(f_consts_, program_modules);
 }
 
 /**
@@ -309,8 +332,7 @@ string t_rb_generator::render_includes() {
   for (auto include : includes) {
     if (namespaced_) {
       t_program* included = include;
-      std::string included_require_prefix
-          = rb_namespace_to_path_prefix(included->get_namespace("rb"));
+      std::string included_require_prefix = rb_namespace_path(included);
       std::string included_name = included->get_name();
       result += "require '" + included_require_prefix + underscore(included_name) + "_types'\n";
     } else {
@@ -335,11 +357,140 @@ string t_rb_generator::rb_autogen_comment() {
  * Closes the type files
  */
 void t_rb_generator::close_generator() {
+  if (zeitwerk_) {
+    return;
+  }
+
   // Close types file
-  end_namespace(f_types_, ruby_modules(program_));
-  end_namespace(f_consts_, ruby_modules(program_));
+  const auto& program_modules = ruby_modules(program_);
+  end_namespace(f_types_, program_modules);
+  end_namespace(f_consts_, program_modules);
   f_types_.close();
   f_consts_.close();
+}
+
+string t_rb_generator::normalize_zeitwerk_name(const std::string& in) {
+  string out;
+  bool upper_next = true;
+  for (char ch : in) {
+    if (ch == '_') {
+      upper_next = true;
+      continue;
+    }
+    if (upper_next) {
+      out.push_back((char)toupper(ch));
+      upper_next = false;
+    } else {
+      out.push_back(ch);
+    }
+  }
+  if (out.empty()) {
+    throw "cannot normalize empty ruby identifier";
+  }
+  return out;
+}
+
+std::string t_rb_generator::rb_constant_name(const std::string& name) {
+  if (zeitwerk_) {
+    return normalize_zeitwerk_name(name);
+  }
+  return capitalize(name);
+}
+
+std::string t_rb_generator::rb_file_name(const std::string& name) {
+  return underscore(name) + ".rb";
+}
+
+const t_rb_generator::rb_namespace_cache&
+t_rb_generator::get_rb_namespace_cache(const t_program* p) {
+  auto iter = rb_namespace_cache_.find(p);
+  if (iter != rb_namespace_cache_.end()) {
+    return iter->second;
+  }
+
+  rb_namespace_cache cached;
+  std::string ns = p->get_namespace("rb");
+  if (!ns.empty()) {
+    std::string::iterator pos = ns.begin();
+    while (true) {
+      std::string::iterator delim = std::find(pos, ns.end(), '.');
+      string module = rb_constant_name(std::string(pos, delim));
+      cached.modules.push_back(module);
+      cached.path_prefix += underscore(module) + "/";
+      cached.constant_prefix += module + "::";
+      pos = delim;
+      if (pos == ns.end()) {
+        break;
+      }
+      ++pos;
+    }
+  }
+
+  auto inserted = rb_namespace_cache_.insert(std::make_pair(p, cached));
+  return inserted.first->second;
+}
+
+const std::vector<std::string>& t_rb_generator::ruby_modules(const t_program* p) {
+  return get_rb_namespace_cache(p).modules;
+}
+
+const std::string& t_rb_generator::rb_namespace_path(const t_program* p) {
+  return get_rb_namespace_cache(p).path_prefix;
+}
+
+const std::string& t_rb_generator::rb_namespace_constant_prefix(const t_program* p) {
+  return get_rb_namespace_cache(p).constant_prefix;
+}
+
+std::string t_rb_generator::rb_symbol_path(const t_program* p, const std::string& constant_name) {
+  return rb_namespace_path(p) + rb_file_name(constant_name);
+}
+
+void t_rb_generator::open_zeitwerk_service_unit(const t_service* service,
+                                                const std::string& idl_name,
+                                                const std::string& ruby_name,
+                                                const std::string& relative_path,
+                                                t_rb_ofstream& out) {
+  open_zeitwerk_unit(service->get_program(), idl_name, ruby_name, relative_path, out);
+  out.indent() << "module " << rb_constant_name(service->get_name()) << '\n';
+  out.indent_up();
+}
+
+void t_rb_generator::close_zeitwerk_service_unit(const t_service* service, t_rb_ofstream& out) {
+  out.indent_down();
+  out.indent() << "end" << '\n' << '\n';
+  close_zeitwerk_unit(service->get_program(), out);
+}
+
+void t_rb_generator::open_zeitwerk_unit(const t_program* program,
+                                        const std::string& idl_name,
+                                        const std::string& ruby_name,
+                                        const std::string& relative_path,
+                                        t_rb_ofstream& out) {
+  auto symbol_iter = zeitwerk_symbols_.find(ruby_name);
+  if (symbol_iter != zeitwerk_symbols_.end() && symbol_iter->second != idl_name) {
+    throw "zeitwerk symbol collision for " + ruby_name + ": " + symbol_iter->second + " vs " + idl_name;
+  }
+  auto path_iter = zeitwerk_paths_.find(relative_path);
+  if (path_iter != zeitwerk_paths_.end() && path_iter->second != ruby_name) {
+    throw "zeitwerk path collision for " + relative_path + ": " + path_iter->second + " vs " + ruby_name;
+  }
+  zeitwerk_symbols_[ruby_name] = idl_name;
+  zeitwerk_paths_[relative_path] = ruby_name;
+
+  string::size_type slash = relative_path.find('/');
+  while (slash != string::npos) {
+    MKDIR((namespace_dir_ + relative_path.substr(0, slash + 1)).c_str());
+    slash = relative_path.find('/', slash + 1);
+  }
+  out.open((namespace_dir_ + relative_path).c_str());
+  out << rb_autogen_comment() << '\n' << render_require_thrift() << '\n';
+  begin_namespace(out, ruby_modules(program));
+}
+
+void t_rb_generator::close_zeitwerk_unit(const t_program* program, t_rb_ofstream& out) {
+  end_namespace(out, ruby_modules(program));
+  out.close();
 }
 
 /**
@@ -351,6 +502,40 @@ void t_rb_generator::generate_typedef(t_typedef* ttypedef) {
   (void)ttypedef;
 }
 
+void t_rb_generator::generate_rb_enum_values(t_rb_ofstream& out, t_enum* tenum) {
+  vector<t_enum_value*> constants = tenum->get_constants();
+  for (auto* constant : constants) {
+    int value = constant->get_value();
+    string name = capitalize(constant->get_name());
+
+    generate_rdoc(out, constant);
+    out.indent() << name << " = " << value << '\n';
+  }
+
+  out.indent() << "VALUE_MAP = {";
+  bool first = true;
+  for (auto* constant : constants) {
+    int value = constant->get_value();
+    if (!first) {
+      out << ", ";
+    }
+    first = false;
+    out << value << " => \"" << capitalize(constant->get_name()) << "\"";
+  }
+  out << "}" << '\n';
+
+  out.indent() << "VALID_VALUES = Set.new([";
+  first = true;
+  for (auto* constant : constants) {
+    if (!first) {
+      out << ", ";
+    }
+    first = false;
+    out << capitalize(constant->get_name());
+  }
+  out << "]).freeze" << '\n';
+}
+
 /**
  * Generates code for an enumerated type. Done using a class to scope
  * the values.
@@ -358,45 +543,26 @@ void t_rb_generator::generate_typedef(t_typedef* ttypedef) {
  * @param tenum The enumeration
  */
 void t_rb_generator::generate_enum(t_enum* tenum) {
+  if (zeitwerk_) {
+    string enum_name = type_name(tenum);
+    t_rb_ofstream out;
+    open_zeitwerk_unit(program_,
+                       tenum->get_name(),
+                       rb_namespace_constant_prefix(program_) + enum_name,
+                       rb_symbol_path(program_, enum_name),
+                       out);
+    out.indent() << "module " << enum_name << '\n';
+    out.indent_up();
+    generate_rb_enum_values(out, tenum);
+    out.indent_down();
+    out.indent() << "end" << '\n' << '\n';
+    close_zeitwerk_unit(program_, out);
+    return;
+  }
+
   f_types_.indent() << "module " << capitalize(tenum->get_name()) << '\n';
   f_types_.indent_up();
-
-  vector<t_enum_value*> constants = tenum->get_constants();
-  vector<t_enum_value*>::iterator c_iter;
-  for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-    int value = (*c_iter)->get_value();
-
-    // Ruby class constants have to be capitalized... omg i am so on the fence
-    // about languages strictly enforcing capitalization why can't we just all
-    // agree and play nice.
-    string name = capitalize((*c_iter)->get_name());
-
-    generate_rdoc(f_types_, *c_iter);
-    f_types_.indent() << name << " = " << value << '\n';
-  }
-
-  // Create a hash mapping values back to their names (as strings) since ruby has no native enum
-  // type
-  f_types_.indent() << "VALUE_MAP = {";
-  for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-    // Populate the hash
-    int value = (*c_iter)->get_value();
-    if (c_iter != constants.begin())
-      f_types_ << ", ";
-    f_types_ << value << " => \"" << capitalize((*c_iter)->get_name()) << "\"";
-  }
-  f_types_ << "}" << '\n';
-
-  // Create a set with valid values for this enum
-  f_types_.indent() << "VALID_VALUES = Set.new([";
-  for (c_iter = constants.begin(); c_iter != constants.end(); ++c_iter) {
-    // Populate the set
-    if (c_iter != constants.begin())
-      f_types_ << ", ";
-    f_types_ << capitalize((*c_iter)->get_name());
-  }
-  f_types_ << "]).freeze" << '\n';
-
+  generate_rb_enum_values(f_types_, tenum);
   f_types_.indent_down();
   f_types_.indent() << "end" << '\n' << '\n';
 }
@@ -406,10 +572,21 @@ void t_rb_generator::generate_enum(t_enum* tenum) {
  */
 void t_rb_generator::generate_const(t_const* tconst) {
   t_type* type = tconst->get_type();
-  string name = tconst->get_name();
+  string name = rb_constant_name(tconst->get_name());
   t_const_value* value = tconst->get_value();
 
-  name[0] = toupper(name[0]);
+  if (zeitwerk_) {
+    t_rb_ofstream out;
+    open_zeitwerk_unit(program_,
+                       tconst->get_name(),
+                       rb_namespace_constant_prefix(program_) + name,
+                       rb_symbol_path(program_, name),
+                       out);
+    out.indent() << name << " = ";
+    render_const_value(out, type, value) << '\n' << '\n';
+    close_zeitwerk_unit(program_, out);
+    return;
+  }
 
   f_consts_.indent() << name << " = ";
   render_const_value(f_consts_, type, value) << '\n' << '\n';
@@ -526,6 +703,23 @@ t_rb_ofstream& t_rb_generator::render_const_value(t_rb_ofstream& out,
  * Generates a ruby struct
  */
 void t_rb_generator::generate_struct(t_struct* tstruct) {
+  if (zeitwerk_) {
+    string struct_name = type_name(tstruct);
+    t_rb_ofstream out;
+    open_zeitwerk_unit(program_,
+                       tstruct->get_name(),
+                       rb_namespace_constant_prefix(program_) + struct_name,
+                       rb_symbol_path(program_, struct_name),
+                       out);
+    if (tstruct->is_union()) {
+      generate_rb_union(out, tstruct, false);
+    } else {
+      generate_rb_struct(out, tstruct, false);
+    }
+    close_zeitwerk_unit(program_, out);
+    return;
+  }
+
   if (tstruct->is_union()) {
     generate_rb_union(f_types_, tstruct, false);
   } else {
@@ -542,6 +736,10 @@ void t_rb_generator::generate_struct(t_struct* tstruct) {
  * ruby in cases where thrift structs rely on recursive definitions.
  */
 void t_rb_generator::generate_forward_declaration(t_struct* tstruct) {
+  if (zeitwerk_) {
+    (void)tstruct;
+    return;
+  }
   generate_rb_struct_declaration(f_types_, tstruct, tstruct->is_xception());
 }
 
@@ -563,6 +761,18 @@ void t_rb_generator::generate_rb_struct_declaration(t_rb_ofstream& out, t_struct
  * @param txception The struct definition
  */
 void t_rb_generator::generate_xception(t_struct* txception) {
+  if (zeitwerk_) {
+    string xception_name = type_name(txception);
+    t_rb_ofstream out;
+    open_zeitwerk_unit(program_,
+                       txception->get_name(),
+                       rb_namespace_constant_prefix(program_) + xception_name,
+                       rb_symbol_path(program_, xception_name),
+                       out);
+    generate_rb_struct(out, txception, true);
+    close_zeitwerk_unit(program_, out);
+    return;
+  }
   generate_rb_struct(f_types_, txception, true);
 }
 
@@ -733,7 +943,11 @@ void t_rb_generator::generate_field_data(t_rb_ofstream& out,
 
   if (!field_type->is_base_type()) {
     if (field_type->is_struct() || field_type->is_xception()) {
-      out << ", :class => " << full_type_name((t_struct*)field_type);
+      if (zeitwerk_) {
+        out << ", :class_name => '" << full_type_name((t_struct*)field_type) << "'";
+      } else {
+        out << ", :class => " << full_type_name((t_struct*)field_type);
+      }
     } else if (field_type->is_list()) {
       out << ", :element => ";
       generate_field_data(out, ((t_list*)field_type)->get_elem_type());
@@ -757,22 +971,27 @@ void t_rb_generator::generate_field_data(t_rb_ofstream& out,
   }
 
   if (field_type->is_enum()) {
-    out << ", :enum_class => " << full_type_name(field_type);
+    if (zeitwerk_) {
+      out << ", :enum_name => '" << full_type_name(field_type) << "'";
+    } else {
+      out << ", :enum_class => " << full_type_name(field_type);
+    }
   }
 
   // End of this field's defn
   out << "}";
 }
 
-void t_rb_generator::begin_namespace(t_rb_ofstream& out, vector<std::string> modules) {
-  for (auto & module : modules) {
+void t_rb_generator::begin_namespace(t_rb_ofstream& out, const vector<std::string>& modules) {
+  for (const auto& module : modules) {
     out.indent() << "module " << module << '\n';
     out.indent_up();
   }
 }
 
-void t_rb_generator::end_namespace(t_rb_ofstream& out, vector<std::string> modules) {
-  for (vector<std::string>::reverse_iterator m_iter = modules.rbegin(); m_iter != modules.rend();
+void t_rb_generator::end_namespace(t_rb_ofstream& out, const vector<std::string>& modules) {
+  for (vector<std::string>::const_reverse_iterator m_iter = modules.rbegin();
+       m_iter != modules.rend();
        ++m_iter) {
     out.indent_down();
     out.indent() << "end" << '\n';
@@ -785,42 +1004,111 @@ void t_rb_generator::end_namespace(t_rb_ofstream& out, vector<std::string> modul
  * @param tservice The service definition
  */
 void t_rb_generator::generate_service(t_service* tservice) {
-  string f_service_name = namespace_dir_ + underscore(service_name_) + ".rb";
-  f_service_.open(f_service_name.c_str());
+  if (zeitwerk_) {
+    string service_name = rb_constant_name(tservice->get_name());
+    const t_program* service_program = tservice->get_program();
+    string ruby_service_name = rb_namespace_constant_prefix(service_program) + service_name;
+    string service_base_path = rb_namespace_path(service_program) + underscore(service_name) + "/";
 
-  f_service_ << rb_autogen_comment() << '\n' << render_require_thrift();
+    {
+      t_rb_ofstream out;
+      open_zeitwerk_service_unit(tservice,
+                                 tservice->get_name(),
+                                 ruby_service_name,
+                                 rb_symbol_path(service_program, service_name),
+                                 out);
+      close_zeitwerk_service_unit(tservice, out);
+    }
+
+    {
+      t_rb_ofstream out;
+      open_zeitwerk_service_unit(tservice,
+                                 tservice->get_name() + ".Client",
+                                 ruby_service_name + "::Client",
+                                 service_base_path + "client.rb",
+                                 out);
+      generate_service_client(out, tservice);
+      close_zeitwerk_service_unit(tservice, out);
+    }
+
+    {
+      t_rb_ofstream out;
+      open_zeitwerk_service_unit(tservice,
+                                 tservice->get_name() + ".Processor",
+                                 ruby_service_name + "::Processor",
+                                 service_base_path + "processor.rb",
+                                 out);
+      generate_service_server(out, tservice);
+      close_zeitwerk_service_unit(tservice, out);
+    }
+
+    const auto& functions = tservice->get_functions();
+    for (auto* function : functions) {
+      t_struct* args = function->get_arglist();
+      string args_name = rb_constant_name(function->get_name() + "_args");
+      {
+        t_rb_ofstream out;
+        open_zeitwerk_service_unit(tservice,
+                                   function->get_name() + "_args",
+                                   ruby_service_name + "::" + args_name,
+                                   service_base_path + rb_file_name(args_name),
+                                   out);
+        generate_rb_struct(out, args, false);
+        close_zeitwerk_service_unit(tservice, out);
+      }
+
+      string result_name = rb_constant_name(function->get_name() + "_result");
+      {
+        t_rb_ofstream out;
+        open_zeitwerk_service_unit(tservice,
+                                   function->get_name() + "_result",
+                                   ruby_service_name + "::" + result_name,
+                                   service_base_path + rb_file_name(result_name),
+                                   out);
+        generate_rb_function_helpers(out, function);
+        close_zeitwerk_service_unit(tservice, out);
+      }
+    }
+    return;
+  }
+
+  string f_service_name = namespace_dir_ + underscore(service_name_) + ".rb";
+  t_rb_ofstream service_out;
+  service_out.open(f_service_name.c_str());
+
+  service_out << rb_autogen_comment() << '\n' << render_require_thrift();
 
   if (tservice->get_extends() != nullptr) {
     if (namespaced_) {
-      f_service_ << "require '" << rb_namespace_to_path_prefix(
-                                       tservice->get_extends()->get_program()->get_namespace("rb"))
-                 << underscore(tservice->get_extends()->get_name()) << "'" << '\n';
+      service_out << "require '" << rb_namespace_path(tservice->get_extends()->get_program())
+                  << underscore(tservice->get_extends()->get_name()) << "'" << '\n';
     } else {
-      f_service_ << "require '" << require_prefix_
-                 << underscore(tservice->get_extends()->get_name()) << "'" << '\n';
+      service_out << "require '" << require_prefix_
+                  << underscore(tservice->get_extends()->get_name()) << "'" << '\n';
     }
   }
 
-  f_service_ << "require '" << require_prefix_ << underscore(program_name_) << "_types'" << '\n'
-             << '\n';
+  service_out << "require '" << require_prefix_ << underscore(program_name_) << "_types'" << '\n'
+              << '\n';
 
-  begin_namespace(f_service_, ruby_modules(tservice->get_program()));
+  const auto& service_modules = ruby_modules(tservice->get_program());
+  begin_namespace(service_out, service_modules);
 
-  f_service_.indent() << "module " << capitalize(tservice->get_name()) << '\n';
-  f_service_.indent_up();
+  service_out.indent() << "module " << rb_constant_name(tservice->get_name()) << '\n';
+  service_out.indent_up();
 
   // Generate the three main parts of the service (well, two for now in PHP)
-  generate_service_client(tservice);
-  generate_service_server(tservice);
-  generate_service_helpers(tservice);
+  generate_service_client(service_out, tservice);
+  generate_service_server(service_out, tservice);
+  generate_service_helpers(service_out, tservice);
 
-  f_service_.indent_down();
-  f_service_.indent() << "end" << '\n' << '\n';
+  service_out.indent_down();
+  service_out.indent() << "end" << '\n' << '\n';
 
-  end_namespace(f_service_, ruby_modules(tservice->get_program()));
+  end_namespace(service_out, service_modules);
 
   // Close service file
-  f_service_.close();
+  service_out.close();
 }
 
 /**
@@ -828,16 +1116,15 @@ void t_rb_generator::generate_service(t_service* tservice) {
  *
  * @param tservice The service to generate a header definition for
  */
-void t_rb_generator::generate_service_helpers(t_service* tservice) {
-  vector<t_function*> functions = tservice->get_functions();
-  vector<t_function*>::iterator f_iter;
+void t_rb_generator::generate_service_helpers(t_rb_ofstream& out, t_service* tservice) {
+  const auto& functions = tservice->get_functions();
 
-  f_service_.indent() << "# HELPER FUNCTIONS AND STRUCTURES" << '\n' << '\n';
+  out.indent() << "# HELPER FUNCTIONS AND STRUCTURES" << '\n' << '\n';
 
-  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    t_struct* ts = (*f_iter)->get_arglist();
-    generate_rb_struct(f_service_, ts);
-    generate_rb_function_helpers(*f_iter);
+  for (auto* function : functions) {
+    t_struct* ts = function->get_arglist();
+    generate_rb_struct(out, ts, false);
+    generate_rb_function_helpers(out, function);
   }
 }
 
@@ -846,7 +1133,7 @@ void t_rb_generator::generate_service_helpers(t_service* tservice) {
  *
  * @param tfunction The function
  */
-void t_rb_generator::generate_rb_function_helpers(t_function* tfunction) {
+void t_rb_generator::generate_rb_function_helpers(t_rb_ofstream& out, t_function* tfunction) {
   t_struct result(program_, tfunction->get_name() + "_result");
   t_field success(tfunction->get_returntype(), "success", 0);
   if (!tfunction->get_returntype()->is_void()) {
@@ -855,11 +1142,10 @@ void t_rb_generator::generate_rb_function_helpers(t_function* tfunction) {
 
   t_struct* xs = tfunction->get_xceptions();
   const vector<t_field*>& fields = xs->get_members();
-  vector<t_field*>::const_iterator f_iter;
-  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
-    result.append(*f_iter);
+  for (auto* field : fields) {
+    result.append(field);
   }
-  generate_rb_struct(f_service_, &result);
+  generate_rb_struct(out, &result, false);
 }
 
 /**
@@ -867,124 +1153,119 @@ void t_rb_generator::generate_rb_function_helpers(t_function* tfunction) {
  *
  * @param tservice The service to generate a server for.
  */
-void t_rb_generator::generate_service_client(t_service* tservice) {
-  string extends = "";
+void t_rb_generator::generate_service_client(t_rb_ofstream& out, t_service* tservice) {
   string extends_client = "";
   if (tservice->get_extends() != nullptr) {
-    extends = full_type_name(tservice->get_extends());
-    extends_client = " < " + extends + "::Client ";
+    extends_client = " < " + full_type_name(tservice->get_extends()) + "::Client ";
   }
 
-  f_service_.indent() << "class Client" << extends_client << '\n';
-  f_service_.indent_up();
+  out.indent() << "class Client" << extends_client << '\n';
+  out.indent_up();
 
-  f_service_.indent() << "include ::Thrift::Client" << '\n' << '\n';
+  out.indent() << "include ::Thrift::Client" << '\n' << '\n';
 
   // Generate client method implementations
-  vector<t_function*> functions = tservice->get_functions();
-  vector<t_function*>::const_iterator f_iter;
-  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    t_struct* arg_struct = (*f_iter)->get_arglist();
+  const auto& functions = tservice->get_functions();
+  for (auto* function : functions) {
+    t_struct* arg_struct = function->get_arglist();
     const vector<t_field*>& fields = arg_struct->get_members();
-    vector<t_field*>::const_iterator fld_iter;
-    string funname = (*f_iter)->get_name();
+    string funname = function->get_name();
 
     // Open function
-    f_service_.indent() << "def " << function_signature(*f_iter) << '\n';
-    f_service_.indent_up();
-    f_service_.indent() << "send_" << funname << "(";
+    out.indent() << "def " << function_signature(function) << '\n';
+    out.indent_up();
+    out.indent() << "send_" << funname << "(";
 
     bool first = true;
-    for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
+    for (const auto* field : fields) {
       if (first) {
         first = false;
       } else {
-        f_service_ << ", ";
+        out << ", ";
       }
-      f_service_ << (*fld_iter)->get_name();
+      out << field->get_name();
     }
-    f_service_ << ")" << '\n';
+    out << ")" << '\n';
 
-    if (!(*f_iter)->is_oneway()) {
-      f_service_.indent();
-      if (!(*f_iter)->get_returntype()->is_void()) {
-        f_service_ << "return ";
+    if (!function->is_oneway()) {
+      out.indent();
+      if (!function->get_returntype()->is_void()) {
+        out << "return ";
       }
-      f_service_ << "recv_" << funname << "()" << '\n';
+      out << "recv_" << funname << "()" << '\n';
     }
-    f_service_.indent_down();
-    f_service_.indent() << "end" << '\n';
-    f_service_ << '\n';
+    out.indent_down();
+    out.indent() << "end" << '\n';
+    out << '\n';
 
-    f_service_.indent() << "def send_" << function_signature(*f_iter) << '\n';
-    f_service_.indent_up();
+    out.indent() << "def send_" << function_signature(function) << '\n';
+    out.indent_up();
 
-    std::string argsname = capitalize((*f_iter)->get_name() + "_args");
-    std::string messageSendProc = (*f_iter)->is_oneway() ? "send_oneway_message" : "send_message";
+    std::string argsname = rb_constant_name(function->get_name() + "_args");
+    std::string messageSendProc = function->is_oneway() ? "send_oneway_message" : "send_message";
 
-    f_service_.indent() << messageSendProc << "('" << funname << "', " << argsname;
+    out.indent() << messageSendProc << "('" << funname << "', " << argsname;
 
-    for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
-      f_service_ << ", :" << (*fld_iter)->get_name() << " => " << (*fld_iter)->get_name();
+    for (const auto* field : fields) {
+      out << ", :" << field->get_name() << " => " << field->get_name();
     }
 
-    f_service_ << ")" << '\n';
+    out << ")" << '\n';
 
-    f_service_.indent_down();
-    f_service_.indent() << "end" << '\n';
+    out.indent_down();
+    out.indent() << "end" << '\n';
 
-    if (!(*f_iter)->is_oneway()) {
-      std::string resultname = capitalize((*f_iter)->get_name() + "_result");
+    if (!function->is_oneway()) {
+      std::string resultname = rb_constant_name(function->get_name() + "_result");
       t_struct noargs(program_);
 
-      t_function recv_function((*f_iter)->get_returntype(),
-                               string("recv_") + (*f_iter)->get_name(),
+      t_function recv_function(function->get_returntype(),
+                               string("recv_") + function->get_name(),
                                &noargs);
       // Open function
-      f_service_ << '\n';
-      f_service_.indent() << "def " << function_signature(&recv_function) << '\n';
-      f_service_.indent_up();
+      out << '\n';
+      out.indent() << "def " << function_signature(&recv_function) << '\n';
+      out.indent_up();
 
-      f_service_.indent() << "fname, mtype, rseqid = receive_message_begin()" << '\n';
-      f_service_.indent() << "handle_exception(mtype)" << '\n';
+      out.indent() << "fname, mtype, rseqid = receive_message_begin()" << '\n';
+      out.indent() << "handle_exception(mtype)" << '\n';
 
-      f_service_.indent() << "if reply_seqid(rseqid)==false" << '\n';
-      f_service_.indent() << "  raise \"seqid reply faild\"" << '\n';
-      f_service_.indent() << "end" << '\n';
+      out.indent() << "if reply_seqid(rseqid)==false" << '\n';
+      out.indent() << "  raise \"seqid reply faild\"" << '\n';
+      out.indent() << "end" << '\n';
 
-      f_service_.indent() << "result = receive_message(" << resultname << ")" << '\n';
+      out.indent() << "result = receive_message(" << resultname << ")" << '\n';
 
       // Careful, only return _result if not a void function
-      if (!(*f_iter)->get_returntype()->is_void()) {
-        f_service_.indent() << "return result.success unless result.success.nil?" << '\n';
+      if (!function->get_returntype()->is_void()) {
+        out.indent() << "return result.success unless result.success.nil?" << '\n';
       }
 
-      t_struct* xs = (*f_iter)->get_xceptions();
+      t_struct* xs = function->get_xceptions();
       const std::vector<t_field*>& xceptions = xs->get_members();
-      vector<t_field*>::const_iterator x_iter;
-      for (x_iter = xceptions.begin(); x_iter != xceptions.end(); ++x_iter) {
-        f_service_.indent() << "raise result." << (*x_iter)->get_name() << " unless result."
-                            << (*x_iter)->get_name() << ".nil?" << '\n';
+      for (const auto* xception : xceptions) {
+        out.indent() << "raise result." << xception->get_name() << " unless result."
+                            << xception->get_name() << ".nil?" << '\n';
       }
 
       // Careful, only return _result if not a void function
-      if ((*f_iter)->get_returntype()->is_void()) {
-        f_service_.indent() << "return" << '\n';
+      if (function->get_returntype()->is_void()) {
+        out.indent() << "return" << '\n';
       } else {
-        f_service_.indent() << "raise "
+        out.indent() << "raise "
                                "::Thrift::ApplicationException.new(::Thrift::ApplicationException::"
-                               "MISSING_RESULT, '" << (*f_iter)->get_name()
+                               "MISSING_RESULT, '" << function->get_name()
                             << " failed: unknown result')" << '\n';
       }
 
       // Close function
-      f_service_.indent_down();
-      f_service_.indent() << "end" << '\n' << '\n';
+      out.indent_down();
+      out.indent() << "end" << '\n' << '\n';
     }
   }
 
-  f_service_.indent_down();
-  f_service_.indent() << "end" << '\n' << '\n';
+  out.indent_down();
+  out.indent() << "end" << '\n' << '\n';
 }
 
 /**
@@ -992,31 +1273,28 @@ void t_rb_generator::generate_service_client(t_service* tservice) {
  *
  * @param tservice The service to generate a server for.
  */
-void t_rb_generator::generate_service_server(t_service* tservice) {
+void t_rb_generator::generate_service_server(t_rb_ofstream& out, t_service* tservice) {
   // Generate the dispatch methods
-  vector<t_function*> functions = tservice->get_functions();
-  vector<t_function*>::iterator f_iter;
+  const auto& functions = tservice->get_functions();
 
-  string extends = "";
   string extends_processor = "";
   if (tservice->get_extends() != nullptr) {
-    extends = full_type_name(tservice->get_extends());
-    extends_processor = " < " + extends + "::Processor ";
+    extends_processor = " < " + full_type_name(tservice->get_extends()) + "::Processor ";
   }
 
   // Generate the header portion
-  f_service_.indent() << "class Processor" << extends_processor << '\n';
-  f_service_.indent_up();
+  out.indent() << "class Processor" << extends_processor << '\n';
+  out.indent_up();
 
-  f_service_.indent() << "include ::Thrift::Processor" << '\n' << '\n';
+  out.indent() << "include ::Thrift::Processor" << '\n' << '\n';
 
   // Generate the process subfunctions
-  for (f_iter = functions.begin(); f_iter != functions.end(); ++f_iter) {
-    generate_process_function(tservice, *f_iter);
+  for (auto* function : functions) {
+    generate_process_function(out, function);
   }
 
-  f_service_.indent_down();
-  f_service_.indent() << "end" << '\n' << '\n';
+  out.indent_down();
+  out.indent() << "end" << '\n' << '\n';
 }
 
 /**
@@ -1024,82 +1302,79 @@ void t_rb_generator::generate_service_server(t_service* tservice) {
  *
  * @param tfunction The function to write a dispatcher for
  */
-void t_rb_generator::generate_process_function(t_service* tservice, t_function* tfunction) {
-  (void)tservice;
+void t_rb_generator::generate_process_function(t_rb_ofstream& out, t_function* tfunction) {
   // Open function
-  f_service_.indent() << "def process_" << tfunction->get_name() << "(seqid, iprot, oprot)" << '\n';
-  f_service_.indent_up();
+  out.indent() << "def process_" << tfunction->get_name() << "(seqid, iprot, oprot)" << '\n';
+  out.indent_up();
 
-  string argsname = capitalize(tfunction->get_name()) + "_args";
-  string resultname = capitalize(tfunction->get_name()) + "_result";
+  string argsname = rb_constant_name(tfunction->get_name() + "_args");
+  string resultname = rb_constant_name(tfunction->get_name() + "_result");
 
-  f_service_.indent() << "args = read_args(iprot, " << argsname << ")" << '\n';
+  out.indent() << "args = read_args(iprot, " << argsname << ")" << '\n';
 
   t_struct* xs = tfunction->get_xceptions();
   const std::vector<t_field*>& xceptions = xs->get_members();
-  vector<t_field*>::const_iterator x_iter;
 
   // Declare result for non oneway function
   if (!tfunction->is_oneway()) {
-    f_service_.indent() << "result = " << resultname << ".new()" << '\n';
+    out.indent() << "result = " << resultname << ".new()" << '\n';
   }
 
   // Try block for a function with exceptions
   if (xceptions.size() > 0) {
-    f_service_.indent() << "begin" << '\n';
-    f_service_.indent_up();
+    out.indent() << "begin" << '\n';
+    out.indent_up();
   }
 
   // Generate the function call
   t_struct* arg_struct = tfunction->get_arglist();
   const std::vector<t_field*>& fields = arg_struct->get_members();
-  vector<t_field*>::const_iterator f_iter;
 
-  f_service_.indent();
+  out.indent();
   if (!tfunction->is_oneway() && !tfunction->get_returntype()->is_void()) {
-    f_service_ << "result.success = ";
+    out << "result.success = ";
   }
-  f_service_ << "@handler." << tfunction->get_name() << "(";
+  out << "@handler." << tfunction->get_name() << "(";
   bool first = true;
-  for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
+  for (const auto* field : fields) {
     if (first) {
       first = false;
     } else {
-      f_service_ << ", ";
+      out << ", ";
     }
-    f_service_ << "args." << (*f_iter)->get_name();
+    out << "args." << field->get_name();
   }
-  f_service_ << ")" << '\n';
+  out << ")" << '\n';
 
   if (!tfunction->is_oneway() && xceptions.size() > 0) {
-    f_service_.indent_down();
-    for (x_iter = xceptions.begin(); x_iter != xceptions.end(); ++x_iter) {
-      f_service_.indent() << "rescue " << full_type_name((*x_iter)->get_type()) << " => "
-                          << (*x_iter)->get_name() << '\n';
+    out.indent_down();
+    for (const auto* xception : xceptions) {
+      out.indent() << "rescue " << full_type_name(xception->get_type()) << " => "
+                          << xception->get_name() << '\n';
       if (!tfunction->is_oneway()) {
-        f_service_.indent_up();
-        f_service_.indent() << "result." << (*x_iter)->get_name() << " = " << (*x_iter)->get_name()
+        out.indent_up();
+        out.indent() << "result." << xception->get_name() << " = " << xception->get_name()
                             << '\n';
-        f_service_.indent_down();
+        out.indent_down();
       }
     }
-    f_service_.indent() << "end" << '\n';
+    out.indent() << "end" << '\n';
   }
 
   // Shortcut out here for oneway functions
   if (tfunction->is_oneway()) {
-    f_service_.indent() << "return" << '\n';
-    f_service_.indent_down();
-    f_service_.indent() << "end" << '\n' << '\n';
+    out.indent() << "return" << '\n';
+    out.indent_down();
+    out.indent() << "end" << '\n' << '\n';
     return;
   }
 
-  f_service_.indent() << "write_result(result, oprot, '" << tfunction->get_name() << "', seqid)"
+  out.indent() << "write_result(result, oprot, '" << tfunction->get_name() << "', seqid)"
                       << '\n';
 
   // Close function
-  f_service_.indent_down();
-  f_service_.indent() << "end" << '\n' << '\n';
+  out.indent_down();
+  out.indent() << "end" << '\n' << '\n';
 }
 
 /**
@@ -1134,23 +1409,16 @@ string t_rb_generator::argument_list(t_struct* tstruct) {
 }
 
 string t_rb_generator::type_name(const t_type* ttype) {
-  string prefix = "";
-
   string name = ttype->get_name();
-  if (ttype->is_struct() || ttype->is_xception() || ttype->is_enum()) {
-    name = capitalize(ttype->get_name());
+  if (ttype->is_struct() || ttype->is_xception() || ttype->is_enum() || ttype->is_service()) {
+    name = rb_constant_name(ttype->get_name());
   }
 
-  return prefix + name;
+  return name;
 }
 
 string t_rb_generator::full_type_name(const t_type* ttype) {
-  string prefix = "::";
-  vector<std::string> modules = ruby_modules(ttype->get_program());
-  for (auto & module : modules) {
-    prefix += module + "::";
-  }
-  return prefix + type_name(ttype);
+  return "::" + rb_namespace_constant_prefix(ttype->get_program()) + type_name(ttype);
 }
 
 /**
@@ -1196,22 +1464,6 @@ string t_rb_generator::type_to_enum(t_type* type) {
   }
 
   throw "INVALID TYPE IN type_to_enum: " + type->get_name();
-}
-
-string t_rb_generator::rb_namespace_to_path_prefix(string rb_namespace) {
-  string namespaces_left = rb_namespace;
-  string::size_type loc;
-
-  string path_prefix = "";
-
-  while ((loc = namespaces_left.find(".")) != string::npos) {
-    path_prefix = path_prefix + underscore(namespaces_left.substr(0, loc)) + "/";
-    namespaces_left = namespaces_left.substr(loc + 1);
-  }
-  if (namespaces_left.size() > 0) {
-    path_prefix = path_prefix + underscore(namespaces_left) + "/";
-  }
-  return path_prefix;
 }
 
 void t_rb_generator::generate_rdoc(t_rb_ofstream& out, t_doc* tdoc) {
@@ -1302,4 +1554,5 @@ THRIFT_REGISTER_GENERATOR(
     rb,
     "Ruby",
     "    rubygems:        Add a \"require 'rubygems'\" line to the top of each generated file.\n"
-    "    namespaced:      Generate files in idiomatic namespaced directories.\n")
+    "    namespaced:      Generate files in idiomatic namespaced directories.\n"
+    "    zeitwerk:        Generate strict Zeitwerk-compatible output.\n")
