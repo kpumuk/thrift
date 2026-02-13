@@ -69,8 +69,13 @@ jobs:
           ./bootstrap.sh
           ./configure $CONFIG_ARGS_FOR_SCA
           make -j$(nproc) -C compiler/cpp
+
+          make -j$(nproc) -C lib/cpp
           make -j$(nproc) -C test/cpp precross
+
+          make -j$(nproc) -C lib/c_glib
           make -j$(nproc) -C test/c_glib precross
+
           make -j$(nproc) -C test/py precross
 
       - name: Run SCA checks
