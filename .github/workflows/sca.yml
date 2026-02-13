@@ -1,0 +1,73 @@
+name: "Static Code Analysis"
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+  workflow_dispatch:
+
+env:
+  BUILD_DEPS: automake bison flex git libboost-all-dev libevent-dev libssl-dev libtool make pkg-config
+  SCA_DEPS: cppcheck python3-flake8 sloccount libglib2.0-dev
+
+permissions:
+  contents: read
+
+jobs:
+  sca:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Lowest supported PHP version
+          php-version: "7.1"
+          extensions: mbstring, xml, curl, pcntl
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -yq
+          sudo apt-get install -y --no-install-recommends g++ $BUILD_DEPS $SCA_DEPS
+
+      - name: Run SCA checks
+        run: |
+          ./bootstrap.sh
+          ./configure --enable-tutorial=no
+          make -j3 precross
+
+          # Compiler cppcheck (All)
+          cppcheck --force --quiet --inline-suppr --enable=all -j2 compiler/cpp/src
+
+          # C++ cppcheck (All)
+          cppcheck --force --quiet --inline-suppr --enable=all -j2 lib/cpp/src lib/cpp/test test/cpp tutorial/cpp
+
+          # C Glib cppcheck (All)
+          cppcheck --force --quiet --inline-suppr --enable=all -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
+
+          # Silent error checks
+          # See THRIFT-4371 : flex generated code triggers "possible null pointer dereference" in yy_init_buffer
+          cppcheck --force --quiet --inline-suppr --suppress="*:thrift/thriftl.cc" --error-exitcode=1 -j2 compiler/cpp/src
+          cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/cpp/src lib/cpp/test test/cpp tutorial/cpp
+          cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
+
+          # Python code style
+          flake8
+
+          # PHP code style
+          composer install --quiet
+          ./vendor/bin/phpcs
+
+          # TODO etc
+          echo "FIXMEs: $(grep -r FIXME * | wc -l)"
+          echo "HACKs: $(grep -r HACK * | wc -l)"
+          echo "TODOs: $(grep -r TODO * | wc -l)"
+
+          # LoC
+          sloccount .
+
+          # System info
+          dpkg -l
+          uname -a
