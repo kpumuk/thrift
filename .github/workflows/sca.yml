@@ -14,6 +14,7 @@ env:
   CONFIG_ARGS_FOR_SCA: >
     --enable-tutorial=no
     --disable-debug
+    --disable-tests
     --disable-dependency-tracking
     --without-java
     --without-kotlin
@@ -67,10 +68,10 @@ jobs:
         run: |
           ./bootstrap.sh
           ./configure $CONFIG_ARGS_FOR_SCA
-          make -C compiler/cpp
-          make -C test/cpp precross
-          make -C test/c_glib precross
-          make -C test/py precross
+          make -j$(nproc) -C compiler/cpp
+          make -j$(nproc) -C test/cpp precross
+          make -j$(nproc) -C test/c_glib precross
+          make -j$(nproc) -C test/py precross
 
       - name: Run SCA checks
         run: |
