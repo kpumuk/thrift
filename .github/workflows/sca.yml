@@ -45,7 +45,7 @@ jobs:
       - name: Generate thrift files
         run: |
           ./bootstrap.sh
-          ./configure --enable-tutorial=no
+          ./configure --enable-tutorial=no --disable-debug --disable-dependency-tracking
           make -j3 precross
 
       - name: Run SCA checks
