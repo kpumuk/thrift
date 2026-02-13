@@ -20,6 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -yq
+          sudo apt-get install -y --no-install-recommends g++ $BUILD_DEPS $SCA_DEPS
+
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -27,17 +32,24 @@ jobs:
           php-version: "7.1"
           extensions: mbstring, xml, curl, pcntl
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update -yq
-          sudo apt-get install -y --no-install-recommends g++ $BUILD_DEPS $SCA_DEPS
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
-      - name: Run SCA checks
+      - name: Install Python test dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel flake8
+
+      # Generate thrift files so the static code analysis includes an analysis
+      # of the files the thrift compiler spits out.
+      - name: Generate thrift files
         run: |
           ./bootstrap.sh
           ./configure --enable-tutorial=no
           make -j3 precross
 
+      - name: Run SCA checks
+        run: |
           # Compiler cppcheck (All)
           cppcheck --force --quiet --inline-suppr --enable=all -j2 compiler/cpp/src
 
