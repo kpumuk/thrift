@@ -10,6 +10,27 @@ on:
 env:
   BUILD_DEPS: automake bison flex git libboost-all-dev libevent-dev libssl-dev libtool make pkg-config
   SCA_DEPS: cppcheck python3-flake8 sloccount libglib2.0-dev
+  # Disable all languages for which we don't have SCA checks in place
+  CONFIG_ARGS_FOR_SCA: >
+    --enable-tutorial=no
+    --disable-debug
+    --disable-dependency-tracking
+    --without-java
+    --without-kotlin
+    --without-netstd
+    --without-nodejs
+    --without-nodets
+    --without-swift
+    --without-go
+    --without-dart
+    --without-erlang
+    --without-haxe
+    --without-ruby
+    --without-rs
+    --without-lua
+    --without-perl
+    --without-d
+    --without-cl
 
 permissions:
   contents: read
@@ -45,8 +66,11 @@ jobs:
       - name: Generate thrift files
         run: |
           ./bootstrap.sh
-          ./configure --enable-tutorial=no --disable-debug --disable-dependency-tracking
-          make -j3 precross
+          ./configure $CONFIG_ARGS_FOR_SCA
+          make -C compiler/cpp
+          make -C test/cpp precross
+          make -C test/c_glib precross
+          make -C test/py precross
 
       - name: Run SCA checks
         run: |
