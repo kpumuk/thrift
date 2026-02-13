@@ -433,7 +433,8 @@
     "server": {
       "command": [
         "ruby",
-        "../integration/TestServer.rb"
+        "../integration/TestServer.rb",
+        "--server-type=nonblocking"
       ]
     },
     "client": {
