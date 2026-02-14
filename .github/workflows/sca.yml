@@ -91,10 +91,53 @@ jobs:
           cppcheck --force --quiet --inline-suppr --enable=all -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
 
           # Silent error checks
-          # See THRIFT-4371 : flex generated code triggers "possible null pointer dereference" in yy_init_buffer
-          cppcheck --force --quiet --inline-suppr --suppress="*:thrift/thriftl.cc" --error-exitcode=1 -j2 compiler/cpp/src
-          cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/cpp/src lib/cpp/test test/cpp tutorial/cpp
-          cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
+          # See THRIFT-4371: flex generated scanner code causes false positives in cppcheck.
+          # suppress *:thrift/thriftl.cc -> flex-generated lexer triggers false null pointer paths.
+          # suppress syntaxError:thrift/thrifty.cc -> bison-generated parser is not fully parseable.
+          # suppress normalCheckLevelMaxBranches:compiler/cpp/src/* -> avoid info-only branch limit noise.
+          cppcheck --force --quiet --inline-suppr \
+            --suppress="*:thrift/thriftl.cc" \
+            --suppress="syntaxError:thrift/thrifty.cc" \
+            --suppress="normalCheckLevelMaxBranches:compiler/cpp/src/*" \
+            --error-exitcode=1 -j2 compiler/cpp/src
+
+          # suppress unknownMacro:lib/cpp/src/thrift/qt/* -> Qt namespace macro needs Qt preprocessing.
+          # suppress unknownMacro:lib/cpp/test/* -> Boost.Test macros are unresolved in standalone analysis.
+          # suppress syntaxError:lib/cpp/src/thrift/transport/TSSLSocket.cpp -> OpenSSL macro branches confuse parser.
+          # suppress normalCheckLevelMaxBranches:* -> avoid info-only branch limit noise.
+          # exclude lib/cpp/test/gen-cpp and test/cpp/gen-* -> generated fixtures duplicate source/test coverage.
+          cppcheck --force --quiet --inline-suppr \
+            --suppress="unknownMacro:lib/cpp/src/thrift/qt/*" \
+            --suppress="unknownMacro:lib/cpp/test/*" \
+            --suppress="syntaxError:lib/cpp/src/thrift/transport/TSSLSocket.cpp" \
+            --suppress="normalCheckLevelMaxBranches:lib/cpp/src/*" \
+            --suppress="normalCheckLevelMaxBranches:lib/cpp/test/*" \
+            --suppress="normalCheckLevelMaxBranches:test/cpp/*" \
+            --suppress="normalCheckLevelMaxBranches:tutorial/cpp/*" \
+            -i lib/cpp/test/gen-cpp \
+            -i test/cpp/gen-cpp \
+            -i test/cpp/gen-cpp-forward \
+            -i test/cpp/gen-cpp-private \
+            -i test/cpp/gen-cpp-enumclass \
+            --error-exitcode=1 -j2 lib/cpp/src lib/cpp/test test/cpp tutorial/cpp
+
+          # suppress unknownMacro:lib/c_glib/src/* -> GObject type macros are unresolved in standalone analysis.
+          # suppress unknownMacro:lib/c_glib/test/* -> test-side GLib macros are unresolved without full preprocess.
+          # suppress syntaxError:lib/c_glib/test/* -> GLib assert macros parse as syntax errors.
+          # suppress normalCheckLevelMaxBranches:* -> avoid info-only branch limit noise.
+          # exclude lib/c_glib/test/gen-c_glib -> generated bindings are covered by generator output checks.
+          # exclude lib/c_glib/test/gen-cpp -> generated skeleton has placeholder methods without returns.
+          cppcheck --force --quiet --inline-suppr \
+            --suppress="unknownMacro:lib/c_glib/src/*" \
+            --suppress="unknownMacro:lib/c_glib/test/*" \
+            --suppress="syntaxError:lib/c_glib/test/*" \
+            --suppress="normalCheckLevelMaxBranches:lib/c_glib/src/*" \
+            --suppress="normalCheckLevelMaxBranches:lib/c_glib/test/*" \
+            --suppress="normalCheckLevelMaxBranches:test/c_glib/*" \
+            --suppress="normalCheckLevelMaxBranches:tutorial/c_glib/*" \
+            -i lib/c_glib/test/gen-c_glib \
+            -i lib/c_glib/test/gen-cpp \
+            --error-exitcode=1 -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
 
       - name: Run flake8
         id: flake8
