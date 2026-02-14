@@ -64,25 +64,23 @@ jobs:
 
       # Generate thrift files so the static code analysis includes an analysis
       # of the files the thrift compiler spits out.
-      - name: Generate thrift files
-        id: generate
+      - name: Build compiler
+        id: compile
         run: |
           ./bootstrap.sh
           ./configure $CONFIG_ARGS_FOR_SCA
           make -j$(nproc) -C compiler/cpp
 
+      - name: Run cppcheck
+        id: cppcheck
+        continue-on-error: true
+        run: |
           make -j$(nproc) -C lib/cpp
           make -j$(nproc) -C test/cpp precross
 
           make -j$(nproc) -C lib/c_glib
           make -j$(nproc) -C test/c_glib precross
 
-          make -j$(nproc) -C test/py precross
-
-      - name: Run cppcheck
-        id: cppcheck
-        continue-on-error: true
-        run: |
           # Compiler cppcheck (All)
           cppcheck --force --quiet --inline-suppr --enable=all -j2 compiler/cpp/src
 
@@ -102,7 +100,8 @@ jobs:
         id: flake8
         continue-on-error: true
         run: |
-          # Python code style
+          make -j$(nproc) -C test/py precross
+
           flake8
 
       - name: Run phpcs
@@ -125,11 +124,11 @@ jobs:
           sloccount .
 
           # System info
-          dpkg -l
+          # dpkg -l
           uname -a
 
       - name: Fail if any SCA check failed
-        if: ${{ always() && steps.generate.outcome == 'success' }}
+        if: ${{ always() && steps.compile.outcome == 'success' }}
         env:
           CPPCHECK_OUTCOME: ${{ steps.cppcheck.outcome }}
           FLAKE8_OUTCOME: ${{ steps.flake8.outcome }}
