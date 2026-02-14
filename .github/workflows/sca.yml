@@ -65,6 +65,7 @@ jobs:
       # Generate thrift files so the static code analysis includes an analysis
       # of the files the thrift compiler spits out.
       - name: Generate thrift files
+        id: generate
         run: |
           ./bootstrap.sh
           ./configure $CONFIG_ARGS_FOR_SCA
@@ -78,7 +79,9 @@ jobs:
 
           make -j$(nproc) -C test/py precross
 
-      - name: Run SCA checks
+      - name: Run cppcheck
+        id: cppcheck
+        continue-on-error: true
         run: |
           # Compiler cppcheck (All)
           cppcheck --force --quiet --inline-suppr --enable=all -j2 compiler/cpp/src
@@ -95,13 +98,24 @@ jobs:
           cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/cpp/src lib/cpp/test test/cpp tutorial/cpp
           cppcheck --force --quiet --inline-suppr --error-exitcode=1 -j2 lib/c_glib/src lib/c_glib/test test/c_glib/src tutorial/c_glib
 
+      - name: Run flake8
+        id: flake8
+        continue-on-error: true
+        run: |
           # Python code style
           flake8
 
+      - name: Run phpcs
+        id: phpcs
+        continue-on-error: true
+        run: |
           # PHP code style
           composer install --quiet
           ./vendor/bin/phpcs
 
+      - name: Print statistics
+        if: ${{ always() }}
+        run: |
           # TODO etc
           echo "FIXMEs: $(grep -r FIXME * | wc -l)"
           echo "HACKs: $(grep -r HACK * | wc -l)"
@@ -113,3 +127,27 @@ jobs:
           # System info
           dpkg -l
           uname -a
+
+      - name: Fail if any SCA check failed
+        if: ${{ always() && steps.generate.outcome == 'success' }}
+        env:
+          CPPCHECK_OUTCOME: ${{ steps.cppcheck.outcome }}
+          FLAKE8_OUTCOME: ${{ steps.flake8.outcome }}
+          PHPCS_OUTCOME: ${{ steps.phpcs.outcome }}
+        run: |
+          failed=0
+
+          if [ "$CPPCHECK_OUTCOME" != "success" ]; then
+            echo "::error::Step 'cppcheck' failed (outcome: $CPPCHECK_OUTCOME)"
+            failed=1
+          fi
+          if [ "$FLAKE8_OUTCOME" != "success" ]; then
+            echo "::error::Step 'flake8' failed (outcome: $FLAKE8_OUTCOME)"
+            failed=1
+          fi
+          if [ "$PHPCS_OUTCOME" != "success" ]; then
+            echo "::error::Step 'phpcs' failed (outcome: $PHPCS_OUTCOME)"
+            failed=1
+          fi
+
+          exit $failed
