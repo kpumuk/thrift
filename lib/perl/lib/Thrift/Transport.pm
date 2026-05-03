@@ -27,7 +27,7 @@ use Thrift::Exception;
 #
 # Transport exceptions
 #
-package Thrift::TTransportException;
+package Thrift::TTransportException;  ## no critic (RequireFilenameMatchesPackage)
 use base('Thrift::TException');
 use version 0.77; our $VERSION = version->declare("$Thrift::VERSION");
 
@@ -177,4 +177,3 @@ sub close
 
 
 1;
-

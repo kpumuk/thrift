@@ -89,7 +89,6 @@ sub accept
         return $result;
     }
 
-    return undef;
 }
 
 sub close
