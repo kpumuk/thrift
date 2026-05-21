@@ -434,6 +434,8 @@
     "name": "rb",
     "server": {
       "command": [
+        "bundle",
+        "exec",
         "ruby",
         "../integration/TestServer.rb"
       ]
@@ -441,6 +443,8 @@
     "client": {
       "timeout": 10,
       "command": [
+        "bundle",
+        "exec",
         "ruby",
         "../integration/TestClient.rb",
         "--"
@@ -462,6 +466,48 @@
       "json",
       "header",
       "multi",
+      "multi:multia",
+      "multic",
+      "multih",
+      "multij"
+    ],
+    "workdir": "rb/gen-rb"
+  },
+  {
+    "name": "rb",
+    "server": {
+      "stop_signal": 2,
+      "command": [
+        "bundle",
+        "exec",
+        "ruby",
+        "../integration/TestServer.rb"
+      ]
+    },
+    "client": {
+      "timeout": 10,
+      "command": [
+        "bundle",
+        "exec",
+        "ruby",
+        "../integration/TestClient.rb",
+        "--"
+      ]
+    },
+    "transports": [
+      "http"
+    ],
+    "sockets": [
+      "ip"
+    ],
+    "protocols": [
+      "binary",
+      "binary:accel",
+      "compact",
+      "json",
+      "header",
+      "multi",
+      "multi:multia",
       "multic",
       "multih",
       "multij"

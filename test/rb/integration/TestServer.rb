@@ -114,6 +114,12 @@ class SecondHandler
   end
 end
 
+class BinaryProtocolAcceleratedStrictFactory < Thrift::BaseProtocolFactory
+  def get_protocol(trans)
+    Thrift::BinaryProtocolAccelerated.new(trans)
+  end
+end
+
 options = {
   domain_socket: nil,
   port: 9090,
@@ -145,9 +151,9 @@ parser = OptionParser.new do |opts|
   end
   opts.on('--domain-socket=PATH', String, 'Unix domain socket path') { |v| options[:domain_socket] = v }
   opts.on('--port=PORT', Integer, 'Port number to listen (not valid with domain-socket)') { |v| options[:port] = v }
-  opts.on('--protocol=PROTO', String, 'protocol: accel, binary, compact, json, header, multi, multic, multih, multij') { |v| options[:protocol] = v }
+  opts.on('--protocol=PROTO', String, 'protocol: accel, binary, compact, json, header, multi, multia, multic, multih, multij') { |v| options[:protocol] = v }
   opts.on('--ssl', 'use ssl (not valid with domain-socket)') { options[:ssl] = true }
-  opts.on('--transport=TRANSPORT', String, 'transport: buffered, framed, header') { |v| options[:transport] = v }
+  opts.on('--transport=TRANSPORT', String, 'transport: buffered, framed, header, http') { |v| options[:transport] = v }
   opts.on('--server-type=TYPE', String, 'type of server: simple, thread-pool, threaded, nonblocking') { |v| options[:server_type] = v }
   opts.on('-n', '--workers=N', Integer, 'Number of workers (thread-pool/nonblocking)') { |v| options[:workers] = v }
 end
@@ -188,11 +194,13 @@ when 'compact'
 when 'json'
   Thrift::JsonProtocolFactory.new
 when 'accel'
-  Thrift::BinaryProtocolAcceleratedFactory.new
+  BinaryProtocolAcceleratedStrictFactory.new
 when 'header'
   Thrift::HeaderProtocolFactory.new
 when 'multi'
   Thrift::BinaryProtocolFactory.new
+when 'multia'
+  BinaryProtocolAcceleratedStrictFactory.new
 when 'multic'
   Thrift::CompactProtocolFactory.new
 when 'multih'
@@ -210,8 +218,19 @@ when 'framed'
   Thrift::FramedTransportFactory.new
 when 'header'
   Thrift::HeaderTransportFactory.new
+when 'http'
+  Thrift::BaseTransportFactory.new
 else
   raise "Unknown transport type '#{options[:transport]}'"
+end
+
+if options[:transport] == 'http' && !options[:domain_socket].to_s.strip.empty?
+  warn '--transport=http is not valid with --domain-socket'
+  exit 1
+end
+
+if options[:transport] == 'http'
+  require 'thrift/server/thin_http_server'
 end
 
 if normalized_server_type == 'nonblocking' && options[:transport] != 'framed'
@@ -250,18 +269,22 @@ else
 end
 
 workers = options[:workers] || 20
-server = case normalized_server_type
-when 'simple'
-  Thrift::SimpleServer.new(processor, transport, transport_factory, protocol_factory)
-when 'threaded'
-  Thrift::ThreadedServer.new(processor, transport, transport_factory, protocol_factory)
-when 'thread-pool'
-  Thrift::ThreadPoolServer.new(processor, transport, transport_factory, protocol_factory, workers)
-when 'nonblocking'
-  logger = Logger.new(STDERR)
-  logger.level = Logger::WARN
-  Thrift::NonblockingServer.new(processor, transport, transport_factory, protocol_factory, workers, logger)
-end
+server = if options[:transport] == 'http'
+           Thrift::ThinHTTPServer.new(processor, port: options[:port], protocol_factory: protocol_factory)
+         else
+           case normalized_server_type
+           when 'simple'
+             Thrift::SimpleServer.new(processor, transport, transport_factory, protocol_factory)
+           when 'threaded'
+             Thrift::ThreadedServer.new(processor, transport, transport_factory, protocol_factory)
+           when 'thread-pool'
+             Thrift::ThreadPoolServer.new(processor, transport, transport_factory, protocol_factory, workers)
+           when 'nonblocking'
+             logger = Logger.new(STDERR)
+             logger.level = Logger::WARN
+             Thrift::NonblockingServer.new(processor, transport, transport_factory, protocol_factory, workers, logger)
+           end
+         end
 
 puts "Starting TestServer #{server.to_s}"
 server.serve

@@ -5,6 +5,7 @@ source "https://rubygems.org"
 gem 'thrift', path: '../../lib/rb'
 
 gem 'rack', '~> 2.2', '>= 2.2.23'
+gem 'ostruct', '~> 0.6'
 gem 'thin', '~> 1.7', '>= 1.7.2'
 gem 'test-unit', '~> 3.2', '>= 3.2.7'
 

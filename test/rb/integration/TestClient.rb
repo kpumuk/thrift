@@ -42,7 +42,7 @@ ARGV.each do|a|
     puts "\t--domain-socket arg (=) \t Unix domain socket path"
     puts "\t--host arg (=localhost) \t Host to connect \t not valid with domain-socket"
     puts "\t--port arg (=9090) \t Port number to listen \t not valid with domain-socket"
-    puts "\t--protocol arg (=binary) \t protocol: accel, binary, compact, json, header, multi, multic, multih, multij"
+    puts "\t--protocol arg (=binary) \t protocol: accel, binary, compact, json, header, multi, multia, multic, multih, multij"
     puts "\t--ssl \t use ssl \t not valid with domain-socket"
     puts "\t--transport arg (=buffered) transport: buffered, framed, header, http"
     exit
@@ -64,7 +64,11 @@ end
 class SimpleClientTest < Test::Unit::TestCase
   def setup
     unless @socket
-      if $domain_socket.to_s.strip.empty?
+      if $transport == "http"
+        scheme = $ssl ? "https" : "http"
+        transportFactory = Thrift::HTTPClientTransport.new("#{scheme}://#{$host}:#{$port}/test", ssl_verify_mode: OpenSSL::SSL::VERIFY_NONE)
+        @socket = transportFactory
+      elsif $domain_socket.to_s.strip.empty?
         if $ssl
           # the working directory for ruby crosstest is test/rb/gen-rb
           keysDir = File.join(File.dirname(File.dirname(Dir.pwd)), "keys")
@@ -85,14 +89,16 @@ class SimpleClientTest < Test::Unit::TestCase
         @socket = Thrift::UNIXSocket.new($domain_socket)
       end
 
-      if $transport == "buffered"
-        transportFactory = Thrift::BufferedTransport.new(@socket)
-      elsif $transport == "framed"
-        transportFactory = Thrift::FramedTransport.new(@socket)
-      elsif $transport == "header"
-        transportFactory = Thrift::HeaderTransport.new(@socket)
-      else
-        raise 'Unknown transport type'
+      unless $transport == "http"
+        if $transport == "buffered"
+          transportFactory = Thrift::BufferedTransport.new(@socket)
+        elsif $transport == "framed"
+          transportFactory = Thrift::FramedTransport.new(@socket)
+        elsif $transport == "header"
+          transportFactory = Thrift::HeaderTransport.new(@socket)
+        else
+          raise 'Unknown transport type'
+        end
       end
 
       @protocol2 = nil
@@ -109,6 +115,10 @@ class SimpleClientTest < Test::Unit::TestCase
         @protocol = Thrift::HeaderProtocol.new(transportFactory)
       elsif $protocolType == "multi"
         protocol = Thrift::BinaryProtocol.new(transportFactory)
+        @protocol = Thrift::MultiplexedProtocol.new(protocol, 'ThriftTest')
+        @protocol2 = Thrift::MultiplexedProtocol.new(protocol, 'SecondService')
+      elsif $protocolType == "multia"
+        protocol = Thrift::BinaryProtocolAccelerated.new(transportFactory)
         @protocol = Thrift::MultiplexedProtocol.new(protocol, 'ThriftTest')
         @protocol2 = Thrift::MultiplexedProtocol.new(protocol, 'SecondService')
       elsif $protocolType == "multic"
@@ -411,6 +421,8 @@ class SimpleClientTest < Test::Unit::TestCase
 
   def test_oneway
     p 'test_oneway'
+    return if $transport == "http"
+
     time1 = Time.now.to_f
     @client.testOneway(1)
     time2 = Time.now.to_f
