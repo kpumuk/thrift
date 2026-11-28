@@ -249,6 +249,55 @@ describe "NonblockingServer" do
       end
     end
 
+    it "answers every call of many that arrive in one write" do
+      calls = 5000
+      request = Thrift::MemoryBufferTransport.new
+      calls.times do |seqid|
+        body = Thrift::MemoryBufferTransport.new
+        protocol = Thrift::BinaryProtocol.new(body)
+        protocol.write_message_begin("greeting", Thrift::MessageTypes::CALL, seqid)
+        protocol.write_struct_begin("greeting_args")
+        protocol.write_field_begin("english", Thrift::Types::BOOL, 1)
+        protocol.write_bool(seqid.even?)
+        protocol.write_field_end
+        # A field the server skips, so that the frames differ in size.
+        protocol.write_field_begin("padding", Thrift::Types::STRING, 99)
+        protocol.write_string("x" * (seqid % 11))
+        protocol.write_field_end
+        protocol.write_field_stop
+        protocol.write_struct_end
+        protocol.write_message_end
+        frame = body.read(body.available)
+        request.write([frame.bytesize].pack("N") + frame)
+      end
+      requests = request.read(request.available)
+
+      socket = TCPSocket.new("localhost", @port)
+      begin
+        # Write from another thread so that the replies are read while the
+        # requests are still being sent.
+        writer = Thread.new { socket.write(requests) }
+        greetings = {}
+        Timeout.timeout(30) do
+          calls.times do
+            reply = Thrift::MemoryBufferTransport.new(socket.read(socket.read(4).unpack1("N")))
+            protocol = Thrift::BinaryProtocol.new(reply)
+            _, _, seqid = protocol.read_message_begin
+            result = SpecNamespace::NonblockingService::Greeting_result.new
+            result.read(protocol)
+            greetings[seqid] = result.success.greeting
+          end
+        end
+        writer.join
+
+        expect(greetings.size).to eq(calls)
+        expect(greetings.keys.sort).to eq((0...calls).to_a)
+        expect(greetings.count { |seqid, greeting| greeting == (seqid.even? ? "hello world" : "Aloha!") }).to eq(calls)
+      ensure
+        socket.close
+      end
+    end
+
     it "should shut down when asked" do
       # connect first to ensure it's running
       client = setup_client

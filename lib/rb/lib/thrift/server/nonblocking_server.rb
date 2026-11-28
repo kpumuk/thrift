@@ -227,24 +227,29 @@ module Thrift
         return if data.is_a?(Symbol) # :wait_readable or :wait_writable
         buf = @buffers[fd]
         buf << data
-        while buf.length >= 4
+        # Take each complete frame from an offset and drop them from the
+        # buffer once at the end: removing every frame from the front would
+        # move the rest of the buffer once per frame.
+        offset = 0
+        while buf.bytesize - offset >= 4
           # Refuse the size before collecting the frame: the four-byte length
           # is read here and the bytes are then buffered as they arrive, for as
           # long as the declared length allows. FramedTransport applies the
           # same maximum to the frame the worker later reads back.
-          size = buf.unpack1("N")
+          size = buf.byteslice(offset, 4).unpack1("N")
           if size > @max_frame_size
             @logger.error "Frame size #{size} exceeds maximum #{@max_frame_size}, closing connection"
             fd.close
-            remove_connection fd
-            break
+            return remove_connection(fd)
           end
-          frame = slice_frame!(buf)
-          break if frame.nil?
+          break if buf.bytesize - offset < size + 4
+          frame = buf.byteslice(offset, size + 4)
+          offset += size + 4
           @logger.debug "#{self} is processing a frame"
           @frames_lock.synchronize { @frames_in_progress[fd] += 1 }
           @worker_queue.push [:frame, fd, frame]
         end
+        buf.slice!(0, offset) if offset > 0
       end
 
       def spin_worker_threads
@@ -387,19 +392,6 @@ module Thrift
         @signal_pipes.each do |pipe|
           pipe.close unless pipe.closed?
         rescue IOError
-        end
-      end
-
-      def slice_frame!(buf)
-        if buf.length >= 4
-          size = buf.unpack1("N")
-          if buf.length >= size + 4
-            buf.slice!(0, size + 4)
-          else
-            nil
-          end
-        else
-          nil
         end
       end
 
